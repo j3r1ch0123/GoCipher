@@ -1,4 +1,4 @@
-package main
+package gocipher
 /*
 function generateKey():
     key = random(32)  // AES-256 requires 32 bytes
@@ -78,7 +78,6 @@ function decrypt_with_metadata(encoded_message, key):
     return decrypt(encrypted_message, key)
 
 */
-package main
 
 import (
 	"crypto/aes"
@@ -117,76 +116,79 @@ func (gc *GoCipher) DeriveKey(password string) string {
 	return base64.StdEncoding.EncodeToString(key)
 }
 
-// Encrypt encrypts plaintext using AES-256-GCM.
 func (gc *GoCipher) Encrypt(plaintext string, key string) string {
-	keyBytes, err := base64.StdEncoding.DecodeString(key)
-	if err != nil {
-		log.Fatal(err)
-	}
-	nonce := make([]byte, 12)
-	_, err = rand.Read(nonce)
-	if err != nil {
-		log.Fatal(err)
-	}
+    keyBytes, err := base64.StdEncoding.DecodeString(key)
+    if err != nil {
+        log.Fatal(err)
+    }
 
-	cipherBlock, err := aes.NewCipher(keyBytes)
-	if err != nil {
-		log.Fatal(err)
-	}
-	gcm, err := cipher.NewGCM(cipherBlock)
-	if err != nil {
-		log.Fatal(err)
-	}
+    nonce := make([]byte, 12)
+    _, err = rand.Read(nonce)
+    if err != nil {
+        log.Fatal(err)
+    }
 
-	ciphertext := gcm.Seal(nonce, nonce, []byte(plaintext), nil)
-	hmacValue := hmacSHA256(ciphertext, keyBytes)
-	message := append(nonce, append(ciphertext, hmacValue...)...)
+    cipherBlock, err := aes.NewCipher(keyBytes)
+    if err != nil {
+        log.Fatal(err)
+    }
 
-	return base64.StdEncoding.EncodeToString(message)
+    gcm, err := cipher.NewGCM(cipherBlock)
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    ciphertext := gcm.Seal(nil, nonce, []byte(plaintext), nil)
+    log.Printf("Nonce: %x", nonce)
+    log.Printf("Ciphertext: %x", ciphertext)
+
+    message := append(nonce, ciphertext...)
+    return base64.StdEncoding.EncodeToString(message)
 }
 
-// Decrypt decrypts an encoded message using AES-256-GCM.
 func (gc *GoCipher) Decrypt(encodedMessage string, key string) string {
-	message, err := base64.StdEncoding.DecodeString(encodedMessage)
-	if err != nil {
-		log.Fatal(err)
-	}
+    message, err := base64.StdEncoding.DecodeString(encodedMessage)
+    if err != nil {
+        log.Fatal(err)
+    }
 
-	nonce := message[:12]
-	ciphertext := message[12 : len(message)-32]
-	receivedHMAC := message[len(message)-32:]
+    if len(message) < 12 {
+        log.Fatal("Message too short to contain nonce")
+    }
 
-	keyBytes, err := base64.StdEncoding.DecodeString(key)
-	if err != nil {
-		log.Fatal(err)
-	}
-	expectedHMAC := hmacSHA256(ciphertext, keyBytes)
-	if !hmac.Equal(receivedHMAC, expectedHMAC) {
-		return "Error: HMAC validation failed!"
-	}
+    nonce := message[:12]
+    ciphertext := message[12:]
+    log.Printf("Nonce: %x", nonce)
+    log.Printf("Ciphertext: %x", ciphertext)
 
-	cipherBlock, err := aes.NewCipher(keyBytes)
-	if err != nil {
-		log.Fatal(err)
-	}
-	gcm, err := cipher.NewGCM(cipherBlock)
-	if err != nil {
-		log.Fatal(err)
-	}
+    keyBytes, err := base64.StdEncoding.DecodeString(key)
+    if err != nil {
+        log.Fatal(err)
+    }
 
-	plaintext, err := gcm.Open(nil, nonce, ciphertext, nil)
-	if err != nil {
-		log.Fatal(err)
-	}
+    cipherBlock, err := aes.NewCipher(keyBytes)
+    if err != nil {
+        log.Fatal(err)
+    }
 
-	return string(plaintext)
+    gcm, err := cipher.NewGCM(cipherBlock)
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    plaintext, err := gcm.Open(nil, nonce, ciphertext, nil)
+    if err != nil {
+        log.Fatalf("cipher: message authentication failed - %v", err)
+    }
+
+    return string(plaintext)
 }
 
-// hmacSHA256 computes the HMAC-SHA256 of data using key.
+
 func hmacSHA256(data, key []byte) []byte {
-	h := hmac.New(sha256.New, key)
-	h.Write(data)
-	return h.Sum(nil)
+    h := hmac.New(sha256.New, key)
+    h.Write(data)
+    return h.Sum(nil)
 }
 
 // EncryptWithMetadata encrypts with metadata (version and timestamp).
@@ -200,8 +202,16 @@ func (gc *GoCipher) EncryptWithMetadata(plaintext string, key string) string {
 
 // DecryptWithMetadata decrypts a message with metadata.
 func (gc *GoCipher) DecryptWithMetadata(encodedMessage string, key string) string {
-	version := encodedMessage[:2]
-	timestamp := encodedMessage[2:12]
 	encryptedMessage := encodedMessage[12:]
 	return gc.Decrypt(encryptedMessage, key)
+}
+
+func main() {
+	gc := &GoCipher{}
+	key := gc.GenerateKey()
+	plaintext := "This is a secret message."
+	encrypted := gc.EncryptWithMetadata(plaintext, key)
+	decrypted := gc.DecryptWithMetadata(encrypted, key)
+	fmt.Println(encrypted)
+	fmt.Println(decrypted)
 }
